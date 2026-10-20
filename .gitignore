@@ -1,0 +1,20 @@
+# 运行产物
+er_check_*/
+report.html
+findings.json
+summary.txt
+timeline.csv
+merged.csv
+merged.html
+manifest.sha256
+evidence/
+处置建议.md
+suggested_fixes.ps1
+suggested_fixes.sh
+baseline*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
