@@ -1,0 +1,263 @@
+# -*- coding: utf-8 -*-
+"""第 0 章 通用方法 / 第 3 章 Web 日志 / 第 4 章 WebShell"""
+
+CH0 = dict(
+    no="0", title="通用方法", plat="通用",
+    lead="在任何一条排查命令之前，先把「此刻」固定下来。本章的四件事做错顺序，后面查到的东西都不能作为证据。",
+    blocks=[
+        dict(t="h2", x="0.1　三条铁律", sub="顺序不能颠倒"),
+        dict(t="p", x="现场最常见的失误不是「没查到」，而是「查到了但证明不了」。以下三条按顺序执行，任何一条跳过都会让后续结论失去证据效力。"),
+        dict(t="rules", x=[
+            ("先快照，后分析", "把当前进程、网络连接、登录会话、内存中的命令行原样导出到只读介质。分析过程中的任何操作（包括打开文件、运行工具）都会改变系统状态。"),
+            ("先哈希，后复制", "对每个要提取的文件，先记录原始路径、大小、时间戳与 SHA256，再复制。复制件的哈希必须与原件一致，否则整条证据链断裂。"),
+            ("先留日志，后清现场", "日志是唯一能还原「攻击者做过什么」的记录。在确认日志已完整导出并校验之前，不要重启、不要清空、不要「顺手清理」。"),
+        ]),
+        dict(t="note", x="本手册全部命令均为只读。唯一的写操作集中在第 7.5 节，且明确标注「取证之后再操作」。"),
+
+        dict(t="h2", x="0.2　证据固定的五个动作", sub="每个动作都要留下记录"),
+        dict(t="table", head=["#", "动作", "做什么", "留下什么"], w=["7mm", "30mm", "70mm", "52mm"], cls="t",
+             rows=[
+                 ["1", "拍照", "屏幕全屏拍摄，包含任务栏时间、主机名、命令窗口标题", "照片编号 + 拍摄时间"],
+                 ["2", "导出", "命令输出重定向到文件，不用「选中复制」", "文件名 + 大小 + 生成时间"],
+                 ["3", "哈希", "`certutil -hashfile`（Win）/ `sha256sum`（Linux）", "SHA256 全串"],
+                 ["4", "复制", "复制到只读介质，原件保持原位不动", "复制件路径 + 复制时间"],
+                 ["5", "登记", "在证据清单中登记 1–4 的全部信息并签名", "证据清单（附报告首页）"],
+             ]),
+        dict(t="pre", x="# Windows：建立工作目录并导出第一份基线\nmkdir D:\\case\nsysteminfo > D:\\case\\01_systeminfo.txt\ncertutil -hashfile D:\\case\\01_systeminfo.txt SHA256 >> D:\\case\\00_hash.txt\n\n# Linux：同样先建目录，再导出\nsudo mkdir -p /mnt/case\nps auxf > /mnt/case/01_ps.txt\nsha256sum /mnt/case/01_ps.txt >> /mnt/case/00_hash.txt"),
+        dict(t="warn", x="介质写入前先确认剩余空间：Windows `dir D:\\`，Linux `df -h /mnt/case`。日志包动辄数百 MB，写满会导致导出中断且难以察觉。"),
+
+        dict(t="h2", x="0.3　提取样本的正确做法", sub="只复制，不执行；只读打开，不双击"),
+        dict(t="p", x="样本提取的目标是「可复核」，不是「能运行」。整个过程禁止双击、禁止用杀软扫描后隔离（会改变原文件），禁止上传到任何在线平台。"),
+        dict(t="pre", x="# Windows：先记录属性，再复制，再校验\ncertutil -hashfile \"C:\\path\\suspect.exe\" SHA256\ncopy /y \"C:\\path\\suspect.exe\" D:\\case\\samples\\\ncertutil -hashfile \"D:\\case\\samples\\suspect.exe\" SHA256\n\n# Linux：用 cp -p 保留时间戳，复制后再校验\nsha256sum /tmp/.x\ncp -p /tmp/.x /mnt/case/samples/\nsha256sum /mnt/case/samples/.x"),
+        dict(t="table", head=["情况", "做法", "禁止"], w=["42mm", "72mm", "45mm"], cls="t",
+             rows=[
+                 ["文件正在被进程占用", "先记录进程 PID 与路径，用 `copy /b` 或 `cp` 尝试读取；失败则记录「被占用无法提取」", "不要 kill 进程后再取（会丢失内存证据）"],
+                 ["文件已被删除但进程仍在", "记录 `/proc/PID/exe` 指向，Linux 可 `cp /proc/PID/exe`；Windows 记录句柄信息", "不要重启"],
+                 ["文件极大（> 2GB）", "只提取头部 1MB 与尾部 1MB，并注明截断", "不要整盘复制"],
+                 ["磁盘已满", "优先提取配置文件与小体积脚本，记录未提取清单", "不要删除任何现有文件腾空间"],
+             ]),
+
+        dict(t="h2", x="0.4　时间线与时间基准", sub="所有判断都建立在「时间可信」之上"),
+        dict(t="p", x="先确认三件事：主机时区、系统时间与标准时间的偏差、日志时间戳用的是本地时间还是 UTC。三者不确认，跨设备比对必然错位。"),
+        dict(t="pre", x="# Windows：时区与时间偏差\nsysteminfo | findstr /C:\"时间\" /C:\"Time\"\ntzutil /g\nw32tm /query /status\n\n# Linux：时区、NTP 状态、当前时间\ntimedatectl\ndate -u; date\ntimedctl show 2>/dev/null | head -5"),
+        dict(t="p", x="时间线表按「时间 / 来源 / 事件 / 证据位置」四列记录。同一事件若有多个来源（如文件 mtime 与登录日志），两行都记，互相印证。第 7.2 节给出模板。"),
+        dict(t="note", x="文件时间可以被篡改（timestomp）。判定优先级：日志时间 > 文件 ctime > 文件 mtime。当 mtime 明显早于 ctime 且差值 > 1 秒时，应怀疑时间戳被改。"),
+
+        dict(t="h2", x="0.5　本手册的使用方法", sub="每项五段，照做即可"),
+        dict(t="table", head=["段落", "含义", "填到哪里"], w=["26mm", "86mm", "47mm"], cls="t",
+             rows=[
+                 ["☐ 检查项标题", "先勾选「已检查」，做完再勾「正常 / 异常」", "标题右侧方框"],
+                 ["① 检查目的", "一句话说明为什么要查，判断是否适用于本机", "—"],
+                 ["② 执行命令", "逐条复制执行；标注 cmd / PowerShell / bash", "—"],
+                 ["③ 正常样例", "对照输出形态，先确认「看起来像正常」", "—"],
+                 ["④ 异常特征", "逐条比对，命中即按级别记入汇总表", "表 x-1「结果」列"],
+                 ["⑤ 证据留存", "把哪一行、哪个文件记到哪一列", "表 x-1「证据位置」列"],
+             ]),
+        dict(t="p", x="每章末尾有一张汇总表（表 1-1、表 2-1 等）。检查完一项立即填写，不要等全章做完再回忆——现场最容易丢失的就是「当时看到的那个路径」。"),
+
+        dict(t="h2", x="0.6　严重级别定义", sub="全手册统一口径"),
+        dict(t="table", head=["级别", "含义", "典型情形", "建议动作"], w=["18mm", "55mm", "60mm", "26mm"], cls="t",
+             rows=[
+                 ["<span class=\"tag s4\">严重</span>", "已可确证入侵或后门存在", "内存马、WebShell 落地、挖矿进程、日志被清", "立即上报，按 7.5 处置"],
+                 ["<span class=\"tag s3\">高危</span>", "强异常，极可能为恶意", "启动项指向 Temp、陌生公钥、陌生管理员账号", "优先核实，准备处置"],
+                 ["<span class=\"tag s2\">中危</span>", "可疑，需结合上下文判断", "配置被改、权限过宽、异常时间点", "记录并交叉验证"],
+                 ["<span class=\"tag s1\">低危</span>", "不合规但未必恶意", "补丁滞后、日志过短、空口令策略", "纳入加固清单"],
+                 ["<span class=\"tag s0\">提示</span>", "仅作记录，供关联分析", "无签名、路径非常规、UA 可疑", "写入时间线备查"],
+             ]),
+        dict(t="warn", x="一条「提示」不足以下结论，但十条「提示」指向同一时间窗时，往往就是攻击链。汇总表的价值在于把分散的提示串起来。"),
+    ])
+
+CH3 = dict(
+    no="3", title="Web 日志分析", plat="通用",
+    lead="日志是唯一能还原「攻击者从哪个 IP、用什么方法、在什么时间进来」的记录。本章给出三种主流格式的逐字段读法与六类攻击特征。",
+    blocks=[
+        dict(t="h2", x="3.1　日志在哪里", sub="先定位，再分析"),
+        dict(t="table", head=["中间件", "默认路径", "格式"], w=["32mm", "95mm", "32mm"], cls="t",
+             rows=[
+                 ["Apache (Debian)", "`/var/log/apache2/access.log`", "combined"],
+                 ["Apache (RHEL)", "`/var/log/httpd/access_log`", "combined"],
+                 ["Nginx", "`/var/log/nginx/access.log`", "combined（可自定义）"],
+                 ["IIS", "`C:\\inetpub\\logs\\LogFiles\\W3SVC1\\u_ex*.log`", "W3C 扩展"],
+                 ["Tomcat", "`/var/log/tomcat*/localhost_access_log.*.txt`", "common"],
+                 ["容器内", "`docker logs <容器>` / `kubectl logs <pod>`", "取决于镜像"],
+             ]),
+        dict(t="pre", x="# Linux：先确认日志轮转情况（有没有更早的日志）\nls -l /var/log/nginx/ /var/log/apache2/ 2>/dev/null\nzcat /var/log/nginx/access.log.2.gz 2>/dev/null | head -3\n\n# Windows：列出所有 IIS 站点日志目录\ndir /s /b C:\\inetpub\\logs\\LogFiles\\W3SVC*\nfindstr /c:\"#Fields\" C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log"),
+        dict(t="note", x="IIS 每个站点一个 W3SVCn 目录，n 与站点 ID 对应。多站点主机必须逐个查，只查默认站点是最常见的漏查。"),
+
+        dict(t="h2", x="3.2　Apache combined 格式逐字段", sub="一行一条请求，空格分隔"),
+        dict(t="pre", x="45.x.x.x - admin [19/Oct/2026:02:11:09 +0800] \"POST /upload.php HTTP/1.1\" 200 512 \"http://site/\" \"Mozilla/5.0 (Windows NT 10.0)\""),
+        dict(t="table", head=["字段", "本例值", "含义", "分析价值"], w=["24mm", "40mm", "42mm", "55mm"], cls="t",
+             rows=[
+                 ["%h 客户端 IP", "45.x.x.x", "发起请求的地址", "溯源第一要素；注意可能是 CDN 回源 IP"],
+                 ["%u 认证用户", "- 或 admin", "HTTP 认证用户名", "出现具体用户名说明已通过认证"],
+                 ["%t 时间", "19/Oct/2026:02:11:09 +0800", "请求时间与时区", "时区必须与主机一致才能对时间线"],
+                 ["%r 请求行", "POST /upload.php HTTP/1.1", "方法 + 路径 + 协议", "方法为 POST + 脚本路径 = 上传重点"],
+                 ["%>s 状态码", "200", "响应状态", "404=探测，200=成功，500=执行出错"],
+                 ["%b 响应字节", "512", "响应体大小", "38 字节常为一句话木马回显"],
+                 ["%{Referer}", "http://site/", "来源页面", "异常来源可能是攻击页面"],
+                 ["%{User-Agent}", "Mozilla/5.0 ...", "客户端标识", "sqlmap/curl/python 是工具特征"],
+             ]),
+
+        dict(t="h2", x="3.3　Nginx 默认格式", sub="与 Apache combined 基本一致"),
+        dict(t="pre", x="45.x.x.x - - [19/Oct/2026:02:11:09 +0800] \"GET /upload/20261019.php HTTP/1.1\" 200 38 \"-\" \"curl/7.68.0\"\n# 常见自定义格式（log_format main）额外包含：\n# $request_time $upstream_response_time $http_x_forwarded_for"),
+        dict(t="p", x="若配置了 `$http_x_forwarded_for`，真实客户端 IP 可能是该字段的第一个值，而 `$remote_addr` 只是上一跳代理。判断前先看 `nginx.conf` 的 `log_format` 定义。"),
+        dict(t="pre", x="# 确认实际使用的格式（避免按默认格式误读字段）\ngrep -A3 'log_format' /etc/nginx/nginx.conf 2>/dev/null\n# 若含 $http_x_forwarded_for，取第一个 IP\nawk -F'\"' '{print $0}' /var/log/nginx/access.log | head -1"),
+
+        dict(t="h2", x="3.4　IIS W3C 扩展格式", sub="以 #Fields 声明列顺序，空格分隔"),
+        dict(t="pre", x="#Software: Microsoft Internet Information Services 10.0\n#Version: 1.0\n#Date: 2026-10-19 00:00:00\n#Fields: date time s-ip cs-method cs-uri-stem cs-uri-query s-port cs-username c-ip cs(User-Agent) sc-status sc-substatus time-taken\n2026-10-19 02:11:09 10.1.2.33 GET /upload/shell.aspx - 80 - 45.x.x.x Mozilla/5.0 200 0 31"),
+        dict(t="table", head=["字段", "含义", "分析价值"], w=["32mm", "52mm", "77mm"], cls="t",
+             rows=[
+                 ["date / time", "UTC 时间（默认）", "**IIS 默认记 UTC**，与本地时间差 8 小时，务必换算"],
+                 ["s-ip", "服务端 IP", "多网卡主机用于区分站点"],
+                 ["cs-method", "请求方法", "PUT/DELETE 在静态站点上极可疑"],
+                 ["cs-uri-stem", "URL 路径", "不含查询串，需与 cs-uri-query 拼接"],
+                 ["cs-uri-query", "查询串", "WebShell 参数、注入语句都在这里"],
+                 ["cs-username", "认证用户", "匿名访问为 `-`"],
+                 ["c-ip", "客户端 IP", "溯源要素（有 CDN 时看 X-Forwarded-For）"],
+                 ["sc-status", "状态码", "200 成功；404 探测；500 执行失败"],
+                 ["time-taken", "耗时（毫秒）", "WebShell 命令执行常达数千毫秒"],
+             ]),
+        dict(t="warn", x="IIS 日志默认 UTC。若直接按本地时间检索，会整体错 8 小时，导致「案发时间点没有日志」的误判。先看 `#Date` 行与本地时间对比确认。"),
+
+        dict(t="h2", x="3.5　六类攻击特征", sub="看到这些组合，优先深查"),
+        dict(t="table", head=["类别", "日志特征", "级别"], w=["26mm", "120mm", "15mm"], cls="t",
+             rows=[
+                 ["扫描探测", "同一 IP 短时间大量 404，路径为 `/admin`、`/.git`、`/phpmyadmin`、`/wp-login.php`", "<span class=\"tag s1\">低危</span>"],
+                 ["SQL 注入", "`cs-uri-query` 含 `union select`、`sleep(`、`benchmark(`、`' or 1=1`，且返回 200", "<span class=\"tag s3\">高危</span>"],
+                 ["文件上传", "`POST` 到 `upload*.php/.aspx`，随后同目录出现脚本被 GET 且 200", "<span class=\"tag s4\">严重</span>"],
+                 ["路径穿越", "URL 含 `../`、`%2e%2e%2f`、`/etc/passwd`、`win.ini`，返回 200", "<span class=\"tag s3\">高危</span>"],
+                 ["命令执行", "URL 含 `cmd=`、`exec=`、`system(`、`passthru(`、`${jndi:`，返回 200", "<span class=\"tag s4\">严重</span>"],
+                 ["WebShell 访问", "静态目录下的脚本被反复 GET/POST，响应体 30–200 字节，UA 为 curl/python", "<span class=\"tag s4\">严重</span>"],
+             ]),
+        dict(t="pre", x="# Linux：按 IP 统计请求量，找扫描源\nawk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head -15\n\n# 找「先 404 后 200」的可疑 IP（先看 404 密度）\nawk '$9==404 {print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head\n\n# 找脚本路径的 POST（上传行为）\ngrep -E 'POST .*\\.(php|aspx?|jsp)' /var/log/nginx/access.log | tail -20"),
+        dict(t="pre", x=":: Windows：IIS 日志按字段位置检索（注意 UTC 时间）\nfindstr /i \"POST\" C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log | findstr /i \".aspx .asp .ashx\"\nfindstr /i \"cmd= exec= union\" C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log\nfindstr /i \" 500 \" C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log | findstr /i \".aspx\""),
+
+        dict(t="h2", x="3.6　分析流程（四步）", sub="从粗到细，不要一上来就全文搜关键词"),
+        dict(t="table", head=["步骤", "做什么", "命令要点"], w=["14mm", "62mm", "85mm"], cls="t",
+             rows=[
+                 ["1 定范围", "确定案发时间窗与受影响站点", "先看日志文件覆盖的日期，别漏轮转文件"],
+                 ["2 找异常 IP", "按请求量、404 数、UA 排序取 TOP", "`awk | sort | uniq -c | sort -rn`"],
+                 ["3 串行为", "对可疑 IP 拉全量请求，按时间排序看路径演进", "`grep '^45.x.x.x' | sort -k4`"],
+                 ["4 对文件", "把命中的 URL 映射到磁盘文件，确认是否落地", "转第 4 章逐个人工审阅"],
+             ]),
+        dict(t="pre", x="# 步骤 3 的完整命令：把某个 IP 的全部请求按时间列出（nginx）\ngrep '^45\\.x\\.x\\.x ' /var/log/nginx/access.log | sort -k4 | less\n\n# 步骤 3 的完整命令：IIS 按 c-ip 过滤（字段位置因 #Fields 而异，先确认）\nfindstr /c:\" 45.x.x.x \" C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log"),
+        dict(t="note", x="把「首次成功攻击」的时间点记下来，它是整条时间线的起点。之前的 404 是探测，之后的 200 是落地。"),
+
+        dict(t="h2", x="3.7　常见误报", sub="这些情况看着像攻击，其实不是"),
+        dict(t="table", head=["现象", "真相", "怎么排除"], w=["52mm", "52mm", "57mm"], cls="t",
+             rows=[
+                 ["大量 404 来自单一 IP", "可能是搜索引擎爬虫或监控探活", "看 UA 是否为 Googlebot/Bingbot，看是否请求 robots.txt"],
+                 ["URL 含 `../`", "部分 CMS 正常使用相对路径", "看是否返回 200 且响应体为文件内容"],
+                 ["UA 为 curl", "运维脚本、健康检查、API 调用", "看请求路径是否为登记的健康检查地址"],
+                 ["`sc-status 500` 集中", "代码 bug 或数据库连接失败", "看同一时间是否有发版记录"],
+                 ["日志时间与事件不符", "IIS 用 UTC；或主机时钟偏移", "换算时区；用 `w32tm`/`timedatectl` 确认"],
+                 ["响应体 38 字节", "可能是一句话木马回显，也可能是空响应", "看请求参数与响应内容，不要只看大小"],
+             ]),
+        dict(t="warn", x="日志分析只能证明「有请求」，不能证明「有落地」。所有严重结论必须由磁盘上的文件佐证，见第 4 章。"),
+    ])
+
+CH4 = dict(
+    no="4", title="WebShell 人工查杀", plat="通用",
+    lead="WebShell 的查杀靠「看代码」而不是「看文件名」。本章给出六类特征与一套逐行审阅清单，全部离线完成。",
+    blocks=[
+        dict(t="h2", x="4.1　一句话木马", sub="体积最小、危害最大"),
+        dict(t="p", x="一句话木马的核心是「接收外部输入并执行」。体积通常在 30–200 字节，文件小、修改时间新、位于可写目录，是三个最有效的筛选条件。"),
+        dict(t="pre", x="<?php @eval($_POST['pass']); ?>\n<?php assert($_REQUEST['cmd']); ?>\n<% eval request(\"pass\") %>\n<%@ Page Language=\"JScript\"%><%eval(Request.Item[\"pass\"],\"unsafe\");%>"),
+        dict(t="table", head=["语言", "危险函数（看到即重点看）", "级别"], w=["22mm", "118mm", "20mm"], cls="t",
+             rows=[
+                 ["PHP", "`eval` `assert` `system` `exec` `shell_exec` `passthru` `popen` `proc_open` `call_user_func` `create_function`", "<span class=\"tag s4\">严重</span>"],
+                 ["ASP", "`eval` `execute` `executeGlobal`", "<span class=\"tag s4\">严重</span>"],
+                 ["ASPX", "`eval` `Process.Start` `Assembly.Load` `Request.Item`", "<span class=\"tag s4\">严重</span>"],
+                 ["JSP", "`Runtime.getRuntime().exec` `ProcessBuilder` `Class.forName` `defineClass`", "<span class=\"tag s4\">严重</span>"],
+             ]),
+        dict(t="warn", x="危险函数本身不是罪证。框架、模板引擎、老业务代码里大量存在。判据是「危险函数 + 外部可控输入」同时出现，例如 `eval($_POST[...])`。"),
+
+        dict(t="h2", x="4.2　大马与管理工具", sub="功能完整，体积较大"),
+        dict(t="p", x="大马通常带文件管理、命令执行、数据库操作、端口扫描等界面，体积几十 KB 到几百 KB，文件名常伪装成正常页面。识别要点是「页面里有表单 + 表单直接操作文件系统」。"),
+        dict(t="table", head=["特征", "具体表现"], w=["40mm", "122mm"], cls="t",
+             rows=[
+                 ["文件管理", "页面出现 `op=upload`、`act=edit`、`path=`、`del=`、`rename=` 等参数"],
+                 ["命令执行", "输入框旁标注 `cmd`、`exec`、`shell`，或直接调用 `Runtime.exec`"],
+                 ["数据库操作", "页面内含 `show tables`、`select * from mysql.user` 等语句"],
+                 ["自带登录框", "单个 php 文件里出现密码校验 + 后续管理功能（正常业务不会这样写）"],
+                 ["编码特征", "整页只有一行超长代码，或开头有大量 `\\x` 转义"],
+             ]),
+
+        dict(t="h2", x="4.3　命名与位置特征", sub="攻击者也会「看起来很正常」"),
+        dict(t="table", head=["特征", "例子", "可信度"], w=["40mm", "90mm", "30mm"], cls="t",
+             rows=[
+                 ["随机名", "`a1b2c3.php`、`x.php`、`1.php`、`test.aspx`", "高"],
+                 ["伪装成图片", "`logo.jpg.php`、`1.asp;.jpg`、`shell.php%00.jpg`", "高"],
+                 ["伪装成系统文件", "`conn.asp` 放在 upload 目录、`index.aspx` 在 images 目录", "高"],
+                 ["双扩展名", "`invoice.pdf.asp`、`photo.png.jsp`", "高"],
+                 ["正常名但位置异常", "`upload/`、`images/`、`cache/`、`tmp/` 下出现 .php", "高"],
+                 ["正常名且位置正常", "`/includes/config.php` 被改写", "中（需比对内容）"],
+             ]),
+        dict(t="pre", x="# Linux：按「可写目录 + 脚本扩展名」筛\nsudo find /var/www -type f \\( -name \"*.php\" -o -name \"*.jsp\" -o -name \"*.asp\" \\) \\\n  | grep -iE '/(upload|uploads|images|img|cache|tmp|data)/'\n\n# Windows：按修改时间倒序列出站点下的脚本\ndir /s /b /o-d C:\\inetpub\\wwwroot | findstr /i \".asp .aspx .ashx .php .jsp\""),
+
+        dict(t="h2", x="4.4　混淆手法", sub="看不懂的代码就是可疑代码"),
+        dict(t="table", head=["手法", "长相", "怎么还原"], w=["28mm", "72mm", "62mm"], cls="t",
+             rows=[
+                 ["Base64", "`eval(base64_decode(\"ZXZhbC...\"))`", "把字符串复制到本地解码，不执行"],
+                 ["字符串反转", "`strrev(\"...\")`、`str_rot13`", "手工反转或 rot13 还原"],
+                 ["变量函数", "`$a='ass'.'ert'; $a($_POST['x']);`", "把拼接结果写下来，再判断"],
+                 ["异或/自解码", "`$x = $a ^ $b;` 或超长 `\\x` 串", "记录原文，标注「已混淆」"],
+                 ["无字母马", "全部由符号与自增运算构成（如 `$_=[];`）", "标记为高度可疑，交专业分析"],
+                 ["图片马", "JPG 头部 + `<?php` 尾部；或 EXIF 中藏代码", "用十六进制查看器看文件尾部"],
+                 ["注释藏码", "大段正常代码中夹一行 `/* */` 包裹的执行语句", "搜索危险函数定位"],
+             ]),
+        dict(t="pre", x="# 查看文件是否「图片开头 + 脚本结尾」（Linux）\nhead -c 16 suspect.jpg | xxd\ntail -c 200 suspect.jpg\n\n# 搜索被注释包裹的危险函数\ngrep -nE '/\\*.*(eval|assert|system).*\\*/' suspect.php"),
+        dict(t="warn", x="不要在生产机上「跑一下看看」。解码、反混淆都在离线副本上做，且解码结果只作为文本查看，不执行。"),
+
+        dict(t="h2", x="4.5　图片马与文件头伪造", sub="能被解析才是关键"),
+        dict(t="p", x="图片马把脚本追加在合法图片之后，靠文件包含漏洞（`include($_GET['f'])`）执行。单看文件头 `FF D8 FF` 会误判为正常，必须看文件尾部与是否被包含。"),
+        dict(t="table", head=["检查点", "命令 / 方法", "判定"], w=["34mm", "78mm", "50mm"], cls="t",
+             rows=[
+                 ["文件头", "`head -c 4 x.jpg | xxd`", "`FF D8 FF E0` 为 JPEG；`89 50 4E 47` 为 PNG"],
+                 ["文件尾", "`tail -c 300 x.jpg`", "出现 `<?php`/`<%`/`<script` 即图片马"],
+                 ["文件大小异常", "`ls -l`", "图片 2MB 但显示只有 200×200，可疑"],
+                 ["是否被包含", "搜代码 `include`/`require` 的参数", "参数可控即存在利用链"],
+                 ["EXIF 藏码", "`strings x.jpg | grep -i eval`", "EXIF 中出现脚本关键字"],
+             ]),
+        dict(t="pre", cap="▸ 验证是否被包含（经验补充，脚本未覆盖；判据见 4.5 表格第 4 行）",
+             x="# 找出「参数可控」的文件包含入口（经验，脚本未覆盖）\ngrep -rn 'include\\|require' /var/www | grep '\\$_'"),
+
+        dict(t="h2", x="4.6　隐藏文件与时间戳", sub="看不见的文件最危险"),
+        dict(t="table", head=["手法", "发现方法", "级别"], w=["42mm", "103mm", "17mm"], cls="t",
+             rows=[
+                 ["点号开头", "`ls -la`（不用 `ls`）、`dir /a`", "<span class=\"tag s3\">高危</span>"],
+                 ["ADS 数据流", "`dir /r`（Windows），看 `:xxx:$DATA`", "<span class=\"tag s3\">高危</span>"],
+                 ["超长文件名", "`ls -b`，看是否用 `..` 填充", "<span class=\"tag s2\">中危</span>"],
+                 ["空格/点结尾", "`find . -name \"* \"`、`*..`", "<span class=\"tag s2\">中危</span>"],
+                 ["时间戳篡改", "`stat` 对比 mtime 与 ctime，mtime 早于 ctime 且差 > 1s", "<span class=\"tag s3\">高危</span>"],
+                 ["权限隐藏", "`find / -name \"*.php\" -perm -000`（谁都读不了）", "<span class=\"tag s1\">低危</span>"],
+             ]),
+        dict(t="pre", x="# Linux：找 mtime 与 ctime 明显不一致的文件（时间戳可能被改）\nsudo find /var/www -type f -name \"*.php\" -printf '%T@ %C@ %p\\n' \\\n  | awk '{ if ($2 - $1 > 1) print }' | head\n\n# Linux：找权限为 000 的文件（rootkit 常见隐藏方式）\nsudo find /var/www -type f -perm 000 2>/dev/null"),
+
+        dict(t="h2", x="4.7　内存马（无文件）", sub="磁盘上找不到，只能从行为与配置发现"),
+        dict(t="p", x="Java 内存马通过反序列化、表达式注入、Agent 注入把恶意类加载进 JVM，磁盘无落地文件。发现路径只有三条：JVM 参数、异常类加载、以及中间件配置被改。"),
+        dict(t="table", head=["线索", "命令", "判定"], w=["34mm", "78mm", "50mm"], cls="t",
+             rows=[
+                 ["javaagent 指向业务目录", "`ps -ef | grep java`", "`-javaagent:/path/webapps/x.jar` 高度可疑"],
+                 ["Filter/Servlet 被动态注册", "查看中间件日志中的类名", "出现陌生包名的 Filter"],
+                 ["JSP 编译缓存异常", "`ls -lt work/Catalina/`", "近期编译的 JSP 与磁盘源文件不符"],
+                 ["反序列化攻击", "日志中 `ClassNotFoundException` + 陌生类", "结合时间点看是否紧随攻击请求"],
+             ]),
+        dict(t="pre", x="# Linux：列出所有 Java 进程的完整命令行与 agent 参数\nps -eo pid,user,cmd | grep java | grep -v grep\nps -eo pid,cmd | grep -o '\\-javaagent:[^ ]*'\n\n# Windows：同样看命令行\nwmic process where \"name='java.exe'\" get ProcessId,CommandLine"),
+
+        dict(t="h2", x="4.8　人工审阅清单", sub="对每个可疑文件走一遍，10 项全过才算排除"),
+        dict(t="table", head=["#", "检查点", "通过标准"], w=["8mm", "66mm", "88mm"], cls="t",
+             rows=[
+                 ["1", "文件位置是否符合业务规范", "在版本库/发布包中能找到同名文件"],
+                 ["2", "文件大小是否合理", "与版本库中的同文件差异 < 10%"],
+                 ["3", "修改时间是否在发布窗口", "与发版记录一致"],
+                 ["4", "首行是否为合法声明", "`<?php` / `<%@` / `<%` 后无异常字符"],
+                 ["5", "是否含外部输入 + 危险函数", "两者不同时出现"],
+                 ["6", "是否存在编码/混淆", "无 base64/strrev/超长转义"],
+                 ["7", "是否有硬编码口令或后门账号", "无"],
+                 ["8", "是否被图片/文档伪装", "文件头与扩展名一致，尾部无脚本"],
+                 ["9", "权限是否与同类文件一致", "与其他业务文件同属主同权限"],
+                 ["10", "是否有对应访问日志", "改造前的访问记录能解释其来源"],
+             ]),
+        dict(t="warn", x="十项里任何一项不通过，都不要删除文件。先按 0.3 提取、按 7.5 处置。删除会销毁唯一的攻击载荷证据。"),
+    ])
